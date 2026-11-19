@@ -24,7 +24,6 @@ def test_standard_checkout():
 
 def test_manifest_is_valid():
     manifest = load_manifest()
-
     assert manifest["live"] in manifest["environments"]
 
     for config in manifest["environments"].values():
@@ -36,7 +35,6 @@ def test_every_environment_passes_the_smoke_test():
 
     for name, config in manifest["environments"].items():
         server = make_server(name, port=0)
-
         threading.Thread(
             target=server.serve_forever,
             daemon=True
@@ -46,15 +44,27 @@ def test_every_environment_passes_the_smoke_test():
             assert fetch(server, "/health") == (
                 200, {"status": "ok"}
             )
-
             assert fetch(server, "/info")[1]["version"] == config["version"]
 
             status, order = fetch(
-                server, "/checkout?items=2&user=asha"
+                server,
+                "/checkout?items=2&user=asha"
             )
-
             assert status == 200 and order["total"] == 200
 
         finally:
             server.shutdown()
             server.server_close()
+
+
+def test_express_checkout_is_off_by_default():
+    assert checkout(2, user="asha") == {"total": 200}
+
+
+def test_express_checkout_saves_the_card():
+    order = checkout(2, user="asha", express=True)
+
+    assert order == {
+        "total": 200,
+        "saved_card": "card-ending-4242"
+    }

@@ -4,14 +4,11 @@
 import http.client
 import json
 import os
-
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
 MANIFEST = os.path.join(HERE, "deploy.json")
-
 SAVED_CARDS = {"asha": "card-ending-4242"}
 
 
@@ -22,7 +19,10 @@ def load_manifest(path=MANIFEST):
 
 def checkout(items, user=None, express=False):
     """Return the order total (100 per item)."""
-    return {"total": 100 * items}
+    order = {"total": 100 * items}
+    if express:
+        order["saved_card"] = SAVED_CARDS[user]
+    return order
 
 
 def as_json(payload):
@@ -40,22 +40,15 @@ def send(handler, status, body, served_by):
 
 def make_handler(env_name, manifest_path):
     class Environment(BaseHTTPRequestHandler):
-
         def do_GET(self):
             url = urlparse(self.path)
             query = parse_qs(url.query)
-
             config = load_manifest(manifest_path)["environments"][env_name]
             flags = config.get("flags", {})
 
             try:
                 if url.path == "/health":
-                    send(
-                        self,
-                        200,
-                        as_json({"status": "ok"}),
-                        env_name
-                    )
+                    send(self, 200, as_json({"status": "ok"}), env_name)
 
                 elif url.path == "/info":
                     info = {
@@ -63,41 +56,35 @@ def make_handler(env_name, manifest_path):
                         "version": config["version"],
                         "flags": flags
                     }
-
                     send(self, 200, as_json(info), env_name)
 
                 elif url.path == "/checkout":
                     items = int(query.get("items", ["1"])[0])
                     user = query.get("user", [None])[0]
-
                     order = checkout(
                         items,
                         user,
                         flags.get("express_checkout", False)
                     )
-
                     send(self, 200, as_json(order), env_name)
 
                 else:
                     send(
-                        self,
-                        404,
+                        self, 404,
                         as_json({"error": "not found"}),
                         env_name
                     )
 
             except ValueError:
                 send(
-                    self,
-                    400,
+                    self, 400,
                     as_json({"error": "bad request"}),
                     env_name
                 )
 
             except Exception as error:
                 send(
-                    self,
-                    500,
+                    self, 500,
                     as_json({"error": type(error).__name__}),
                     env_name
                 )
@@ -109,34 +96,23 @@ def make_handler(env_name, manifest_path):
 
 
 def make_router_handler(manifest_path):
-
     class Router(BaseHTTPRequestHandler):
-
         def do_GET(self):
             manifest = load_manifest(manifest_path)
-
             live = manifest["live"]
             port = manifest["environments"][live]["port"]
 
             try:
                 connection = http.client.HTTPConnection(
-                    "127.0.0.1",
-                    port,
-                    timeout=3
+                    "127.0.0.1", port, timeout=3
                 )
-
                 connection.request("GET", self.path)
-
                 answer = connection.getresponse()
-
-                status = answer.status
-                body = answer.read()
-
+                status, body = answer.status, answer.read()
                 connection.close()
 
             except OSError:
-                status = 502
-                body = as_json(
+                status, body = 502, as_json(
                     {"error": "environment unreachable"}
                 )
 
@@ -149,7 +125,6 @@ def make_router_handler(manifest_path):
 
 
 def make_server(env_name, port=None, manifest_path=MANIFEST):
-
     if port is None:
         port = load_manifest(manifest_path)["environments"][env_name]["port"]
 
@@ -160,7 +135,6 @@ def make_server(env_name, port=None, manifest_path=MANIFEST):
 
 
 def make_router(port, manifest_path=MANIFEST):
-
     return ThreadingHTTPServer(
         ("127.0.0.1", port),
         make_router_handler(manifest_path)
